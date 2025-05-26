@@ -4,7 +4,7 @@
 # отправляет сигналы для обновления GUI.
 
 import asyncio
-from PyQt6.QtCore import QObject, pyqtSignal
+from PySide6.QtCore import QObject, Signal # PyQt6 -> PySide6, pyqtSignal -> Signal
 from gpiozero import LED, PingServer
 from gpiozero.tools import negated # Утилита для инвертирования значения источника gpiozero
 
@@ -15,7 +15,7 @@ class NetworkChecker(QObject):
     Периодически проверяет статус и отправляет сигнал network_status_gui для обновления UI.
     """
     # Сигнал для обновления GUI: True/False (доступен/нет), строка сообщения
-    network_status_gui = pyqtSignal(bool, str)
+    network_status_gui = Signal(bool, str) # pyqtSignal -> Signal
 
     def __init__(self, parent=None):
         """
@@ -59,7 +59,9 @@ class NetworkChecker(QObject):
         except Exception as e:
             # Обработка возможных исключений при инициализации gpiozero (например, если библиотека не установлена или запущено не на RPi)
             print(f"Ошибка инициализации NetworkChecker (gpiozero): {e}")
-            self.camera_error.emit(f"Ошибка GPIO: {e}") # Используем существующий сигнал для уведомления об ошибке
+            # self.camera_error.emit(f"Ошибка GPIO: {e}") # Удалено, т.к. camera_error не определен здесь.
+            # Вместо этого можно создать свой сигнал ошибки GPIO или использовать logging.
+            # Для данной задачи рефакторинга просто убираем вызов неопределенного сигнала.
             # Устанавливаем заглушки, чтобы приложение не упало при вызове методов
             self.green_led = None
             self.red_led = None

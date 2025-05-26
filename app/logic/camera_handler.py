@@ -3,8 +3,8 @@
 import cv2  # Библиотека OpenCV для работы с компьютерным зрением
 import asyncio  # Для асинхронного выполнения операций
 import time # Для отслеживания времени кадра и FPS
-from PyQt6.QtCore import QObject, pyqtSignal, QSize, Qt
-from PyQt6.QtGui import QImage  # Класс для работы с изображениями в PyQt
+from PySide6.QtCore import QObject, Signal, QSize, Qt # PyQt6 -> PySide6, pyqtSignal -> Signal
+from PySide6.QtGui import QImage  # PyQt6 -> PySide6
 
 class CameraHandler(QObject):
     """
@@ -13,9 +13,9 @@ class CameraHandler(QObject):
     Работает в асинхронном режиме, чтобы не блокировать основной поток приложения.
     """
     # Сигнал, передающий новый обработанный кадр (в формате QImage)
-    new_frame = pyqtSignal(QImage)
+    new_frame = Signal(QImage) # pyqtSignal -> Signal
     # Сигнал, сообщающий об ошибках, возникших при работе с камерой
-    camera_error = pyqtSignal(str)
+    camera_error = Signal(str) # pyqtSignal -> Signal
 
     def __init__(self, camera_index=1, capture_width=544, capture_height=288, target_display_size=QSize(400, 300), parent=None):
         """
