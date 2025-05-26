@@ -4,7 +4,7 @@
 
 from PyQt6.QtWidgets import QMainWindow, QWidget, QGridLayout, QLabel, QPushButton, QVBoxLayout
 from PyQt6.QtCore import Qt, QUrl, QTimer, QPoint
-from PyQt6.QtGui import QPalette, QColor, QPixmap # QPalette и QColor могут быть не нужны после перехода на стили
+from PyQt6.QtGui import QPixmap # QPalette и QColor удалены, т.к. стилизация через styleSheet
 from PyQt6.QtWebEngineWidgets import QWebEngineView # Для отображения HTML контента (погода)
 
 # Импорт логических модулей
@@ -104,8 +104,7 @@ class MainWindow(QMainWindow):
         gpio_layout.setContentsMargins(20, 20, 20, 20) # Отступы внутри контейнера
         gpio_layout.setSpacing(15) # Расстояние между кнопками
 
-        # Создание кнопок GPIO
-        self.gpio_button1 = QPushButton("GPIO Управление 1")
+        # Создание кнопок GPIO (self.gpio_button1 удалена, т.к. ее функция выполняется физической кнопкой)
         self.gpio_button2 = QPushButton("GPIO Управление 2")
         self.gpio_button3 = QPushButton("GPIO Управление 3")
         self.gpio_button4 = QPushButton("GPIO Управление 4")
@@ -131,47 +130,81 @@ class MainWindow(QMainWindow):
         }
         '''
         # Применение стиля ко всем кнопкам GPIO
-        self.gpio_button1.setStyleSheet(button_style)
         self.gpio_button2.setStyleSheet(button_style)
         self.gpio_button3.setStyleSheet(button_style)
         self.gpio_button4.setStyleSheet(button_style)
 
         # Добавление кнопок в QVBoxLayout
-        gpio_layout.addWidget(self.gpio_button1)
         gpio_layout.addWidget(self.gpio_button2)
         gpio_layout.addWidget(self.gpio_button3)
         gpio_layout.addWidget(self.gpio_button4)
 
         # Подключение сигналов `clicked` от кнопок к асинхронным методам GPIOController.
-        # Используется `asyncio.create_task` для запуска async-методов в цикле событий asyncio,
-        # который интегрирован с PyQt через Quamash.
-        self.gpio_button1.clicked.connect(lambda: asyncio.create_task(self.gpio_controller.control_gpio_1()))
+        # self.gpio_button1 и его connect УДАЛЕНЫ.
         self.gpio_button2.clicked.connect(lambda: asyncio.create_task(self.gpio_controller.control_gpio_2()))
         self.gpio_button3.clicked.connect(lambda: asyncio.create_task(self.gpio_controller.control_gpio_3()))
         self.gpio_button4.clicked.connect(lambda: asyncio.create_task(self.gpio_controller.control_gpio_4()))
         
+        # Подключение сигнала от GPIOController (например, после действия физической кнопки) к слоту для toast
+        self.gpio_controller.shutdown_action_finished.connect(self.on_shutdown_action_toast)
+
         layout.addWidget(gpio_control_container, 1, 1) # Добавление контейнера с кнопками в сетку
         
-        # Инициализация и запуск обработчика камеры
-        # camera_index=0 означает первую доступную камеру в системе.
-        self.camera_handler = CameraHandler(camera_index=0) 
-        self.camera_handler.new_frame.connect(self.update_camera_view) # Подключение сигнала нового кадра к слоту обновления
-        self.camera_handler.camera_error.connect(self.show_camera_error) # Подключение сигнала ошибки камеры к слоту отображения
-        self.camera_handler.start_capture() # Запуск захвата видео
+        # Инициализация и запуск обработчика камеры.
+        # Параметры camera_index=1, capture_width=544, capture_height=288 установлены 
+        # в соответствии с последними изменениями для использования внешней USB-камеры и ее специфического разрешения.
+        self.camera_handler = CameraHandler(camera_index=1, capture_width=544, capture_height=288) 
+        self.camera_handler.new_frame.connect(self.update_camera_view)
+        self.camera_handler.camera_error.connect(self.show_camera_error)
+        self.camera_handler.start_capture()
 
-        # Инициализация и запуск проверки сетевого соединения
+        # Инициализация и запуск проверки сетевого соединения.
+        # NetworkChecker теперь использует gpiozero.PingServer и управляет светодиодами (GPIO 21, 26).
+        # Сигнал network_status_gui используется для обновления метки в GUI.
         self.network_checker = NetworkChecker()
-        self.network_checker.network_status_changed.connect(self.update_network_status_display) # Сигнал изменения статуса сети
-        self.network_checker.start_monitoring() # Запуск мониторинга сети
+        self.network_checker.network_status_gui.connect(self.update_network_status_label)
+        self.network_checker.start_monitoring()
+
+        # --- Настройка содержимого для self.part3_placeholder (статус сети) ---
+        # Эта секция была добавлена в Turn 31/32 для отображения статуса сети.
+        # Комментарии ниже описывают ее структуру.
+        if self.part3_placeholder.layout() is None:
+            part3_layout = QVBoxLayout(self.part3_placeholder)
+            self.part3_placeholder.setLayout(part3_layout)
+        else:
+            part3_layout = self.part3_placeholder.layout()
+        
+        part3_layout.setContentsMargins(15, 15, 15, 15) 
+        part3_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.network_status_label = QLabel("Статус сети: ожидание...")
+        self.network_status_label.setObjectName("networkStatusLabel")
+        self.network_status_label.setAlignment(Qt.AlignmentFlag.AlignCenter) 
+        self.network_status_label.setStyleSheet(
+            "#networkStatusLabel { color: #424242; font-size: 15px; font-family: 'DejaVu Sans', Arial, sans-serif; }"
+        ) 
+
+        part3_layout.addStretch(1) 
+        part3_layout.addWidget(self.network_status_label)
+        part3_layout.addStretch(1)
 
         # Отображение окна в полноэкранном режиме в конце инициализации
         self.showFullScreen() 
         # self.resize(800, 600) # Можно использовать для отладки не в полноэкранном режиме
         
-        print("MainWindow: Инициализация завершена. Окно готово.")
+        # Сообщение в консоли отражает последние изменения: удаление GUI кнопки gpio_button1
+        # и подключение обработчика для физической кнопки (через GPIOController).
+        print("MainWindow: Инициализация завершена. GUI кнопка 1 (GPIO17) удалена, обработчик физической кнопки подключен.")
+        
         # Атрибуты для управления всплывающими сообщениями (toast)
-        self.toast_label = None # QLabel для текста сообщения
-        self.toast_timer = None # QTimer для автоскрытия сообщения
+        self.toast_label = None 
+        self.toast_timer = None 
+
+    # Новый слот для отображения toast-сообщений от GPIOController,
+    # в частности, после выполнения действия закрытия браузера (по нажатию физической кнопки).
+    def on_shutdown_action_toast(self, message):
+        """Отображает toast-сообщение, полученное от GPIOController (например, о статусе закрытия Chromium)."""
+        self.show_toast(message, duration=4000)
 
     def show_toast(self, message, duration=3000):
         """
@@ -232,16 +265,28 @@ class MainWindow(QMainWindow):
         """Слот для обновления изображения с камеры в QLabel."""
         self.camera_view_label.setPixmap(QPixmap.fromImage(q_image))
 
-    def update_network_status_display(self, is_available, message):
+    # Новый слот для обновления QLabel статуса сети и показа toast при недоступности
+    def update_network_status_label(self, is_available, message):
         """
-        Слот для обработки изменения статуса сети.
-        Отображает всплывающее сообщение при недоступности сети.
+        Обновляет текстовую метку статуса сети и ее цвет.
+        Также показывает всплывающее сообщение (toast) при недоступности сети.
         """
-        if not is_available:
-            self.show_toast(f"Сеть: {message}", duration=4000)
+        self.network_status_label.setText(message)
+        base_style = "#networkStatusLabel {{ font-size: 15px; font-family: 'DejaVu Sans', Arial, sans-serif; color: {color}; }}"
+        if is_available:
+            # Зеленый цвет для текста, если сеть доступна
+            self.network_status_label.setStyleSheet(base_style.format(color="#2E7D32")) # темно-зеленый
+            # Можно добавить show_toast для подтверждения восстановления сети, если это необходимо
+            # self.show_toast("Сеть восстановлена", duration=3000) 
         else:
-            # Если сеть доступна, просто выводим информацию в консоль (можно убрать или изменить)
-            print(f"Статус сети: {message}") 
+            # Красный цвет для текста, если сеть недоступна
+            self.network_status_label.setStyleSheet(base_style.format(color="#C62828")) # темно-красный
+            self.show_toast(f"Сеть: {message}", duration=4000) # Показываем toast при ошибке/недоступности
+        
+        print(f"GUI Обновлен (метка статуса сети): {message}")
+
+    # Старый слот update_network_status_display удален, так как его функциональность
+    # полностью покрывается update_network_status_label и он больше не подключен к активному сигналу.
 
     def show_camera_error(self, error_message):
         """
