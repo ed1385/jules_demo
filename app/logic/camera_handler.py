@@ -2,6 +2,7 @@
 # Модуль для управления камерой, захвата и обработки видеопотока.
 import cv2  # Библиотека OpenCV для работы с компьютерным зрением
 import asyncio  # Для асинхронного выполнения операций
+import time # Для отслеживания времени кадра и FPS
 from PyQt6.QtCore import QObject, pyqtSignal, QSize, Qt
 from PyQt6.QtGui import QImage  # Класс для работы с изображениями в PyQt
 
@@ -16,25 +17,38 @@ class CameraHandler(QObject):
     # Сигнал, сообщающий об ошибках, возникших при работе с камерой
     camera_error = pyqtSignal(str)
 
-    def __init__(self, camera_index=0, parent=None):
+    def __init__(self, camera_index=1, capture_width=544, capture_height=288, target_display_size=QSize(400, 300), parent=None):
         """
         Инициализация обработчика камеры.
         Args:
-            camera_index (int): Индекс камеры в системе (например, 0 для встроенной).
+            camera_index (int): Индекс камеры в системе. По умолчанию 1.
+            capture_width (int): Целевая ширина захвата кадра с камеры.
+            capture_height (int): Целевая высота захвата кадра с камеры.
+            target_display_size (QSize): Целевой размер для отображения в GUI.
             parent (QObject, optional): Родительский объект PyQt.
         """
         super().__init__(parent)
-        self.camera_index = camera_index  # Индекс используемой камеры
-        self.cap = None  # Объект VideoCapture из OpenCV
-        self.running = False  # Флаг, управляющий циклом захвата кадров
-        self.target_size = QSize(400, 300)  # Целевой размер кадра для отображения в UI
+        self.camera_index = camera_index  # Индекс камеры (по умолчанию 1 для внешней USB-камеры)
+        self.capture_width = capture_width  # Ширина кадра при захвате с камеры
+        self.capture_height = capture_height  # Высота кадра при захвате с камеры
+        self.target_display_size = target_display_size  # Целевой размер для отображения в GUI (например, 400x300)
 
-        # Константы для обработки отказов камеры
-        self.MAX_OPEN_ATTEMPTS = 3  # Максимальное количество попыток полного переоткрытия камеры
-        self.MAX_READ_FAILURES = 5  # Максимальное количество последовательных неудачных чтений кадра перед переоткрытием
+        self.cap = None  # Объект VideoCapture из OpenCV
+        self.running = False  # Флаг, управляющий основным циклом захвата кадров
         
-        self._current_open_attempts = 0 # Счетчик текущих попыток открытия/переоткрытия
-        self._current_read_failures = 0 # Счетчик текущих неудачных чтений
+        self.FPS_LIMIT = 20.0  # Желаемое ограничение FPS для цикла захвата (исправлено с глобальной на локальную)
+        self.last_frame_time = 0  # Время получения последнего кадра, используется для контроля FPS
+
+        # Константы для логики восстановления камеры при сбоях
+        self.MAX_OPEN_ATTEMPTS = 3  # Макс. число попыток полного переоткрытия камеры
+        self.MAX_READ_FAILURES = 5  # Макс. число последовательных неудачных чтений кадра перед попыткой переоткрытия
+        
+        self._current_open_attempts = 0  # Счетчик текущих попыток открытия/переоткрытия
+        self._current_read_failures = 0  # Счетчик текущих последовательных неудачных чтений
+        print(f"CameraHandler инициализирован: камера_индекс={self.camera_index}, "
+              f"разрешение_захвата={self.capture_width}x{self.capture_height}, FPS_лимит={self.FPS_LIMIT}, "
+              f"размер_отображения={self.target_display_size.width()}x{self.target_display_size.height()}")
+
 
     async def _try_system_level_restart(self):
         """
@@ -91,12 +105,19 @@ class CameraHandler(QObject):
         self.cap = await asyncio.to_thread(cv2.VideoCapture, self.camera_index) # Асинхронный вызов
 
         if self.cap and self.cap.isOpened():
-            print(f"Камера {self.camera_index}: Успешно открыта. Установка параметров...")
-            await asyncio.to_thread(self.cap.set, cv2.CAP_PROP_FRAME_WIDTH, 640)
-            await asyncio.to_thread(self.cap.set, cv2.CAP_PROP_FRAME_HEIGHT, 480)
-            print(f"Камера {self.camera_index}: Параметры установлены.")
-            self._current_open_attempts = 0 # Сброс счетчика попыток открытия при успехе
-            self._current_read_failures = 0 # Также сбрасываем ошибки чтения
+            print(f"Камера {self.camera_index}: Успешно открыта. Установка параметров разрешения захвата ({self.capture_width}x{self.capture_height})...")
+            # Установка желаемой ширины и высоты кадра. Это также блокирующие операции.
+            await asyncio.to_thread(self.cap.set, cv2.CAP_PROP_FRAME_WIDTH, self.capture_width)
+            await asyncio.to_thread(self.cap.set, cv2.CAP_PROP_FRAME_HEIGHT, self.capture_height)
+            
+            # (Опционально) Проверка установленных значений (может отличаться от запрошенных, если камера не поддерживает)
+            # actual_width = await asyncio.to_thread(self.cap.get, cv2.CAP_PROP_FRAME_WIDTH)
+            # actual_height = await asyncio.to_thread(self.cap.get, cv2.CAP_PROP_FRAME_HEIGHT)
+            # print(f"Камера {self.camera_index}: Запрошено {self.capture_width}x{self.capture_height}, фактическое {actual_width}x{actual_height}.")
+            
+            print(f"Камера {self.camera_index}: Параметры разрешения установлены.")
+            self._current_open_attempts = 0  # Сброс счетчика попыток открытия при успехе
+            self._current_read_failures = 0  # Также сбрасываем ошибки чтения, т.к. камера успешно (пере)открыта
             return True
         else:
             print(f"Камера {self.camera_index}: Не удалось открыть.")
@@ -146,11 +167,24 @@ class CameraHandler(QObject):
                     # self._current_open_attempts = 0 # Камера работает, все попытки открытия сброшены
                                                    # Сбрасывается в _attempt_open_camera
                     
-                    rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    # Поворот кадра на 90 градусов против часовой стрелки.
+                    # Это может быть необходимо для некоторых USB-камер, которые по умолчанию дают перевернутое изображение.
+                    try:
+                        rotated_frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+                    except Exception as e:
+                        print(f"Камера {self.camera_index}: Ошибка при повороте кадра: {e}")
+                        # Пропускаем этот кадр, если поворот не удался
+                        # Управление FPS нижезаботится о задержке
+                        await asyncio.sleep(0.01) # Небольшая пауза
+                        continue 
+                    # === Конец интеграции кода пользователя ===
+                    
+                    # Конвертация повернутого кадра из BGR (OpenCV) в RGB.
+                    rgb_image = cv2.cvtColor(rotated_frame, cv2.COLOR_BGR2RGB)
                     h, w, ch = rgb_image.shape
                     bytes_per_line = ch * w
                     qt_image = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
-                    qt_image_scaled = qt_image.scaled(self.target_size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                    qt_image_scaled = qt_image.scaled(self.target_display_size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation) # Масштабирование для GUI
                     self.new_frame.emit(qt_image_scaled)
                 else:
                     # Кадр не получен

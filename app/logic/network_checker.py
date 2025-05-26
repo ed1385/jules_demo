@@ -1,170 +1,154 @@
 # app/logic/network_checker.py
-# Модуль для асинхронной проверки доступности сети с использованием PING.
+# Модуль для асинхронной проверки доступности сети с использованием PingServer из gpiozero.
+# Управляет светодиодами (зеленый/красный) для индикации статуса сети и
+# отправляет сигналы для обновления GUI.
+
 import asyncio
-import platform  # Для определения операционной системы и формирования корректной команды PING
 from PyQt6.QtCore import QObject, pyqtSignal
+from gpiozero import LED, PingServer
+from gpiozero.tools import negated # Утилита для инвертирования значения источника gpiozero
 
 class NetworkChecker(QObject):
     """
-    Класс NetworkChecker выполняет периодическую проверку сетевого соединения
-    с указанным хостом (ping_target) с помощью команды PING.
-    Работает асинхронно, чтобы не блокировать основной поток приложения.
+    Класс NetworkChecker использует gpiozero.PingServer для мониторинга доступности сети (8.8.8.8).
+    Автоматически управляет зеленым и красным светодиодами для индикации статуса.
+    Периодически проверяет статус и отправляет сигнал network_status_gui для обновления UI.
     """
-    # Сигнал, информирующий об изменении статуса сети.
-    # Передает:
-    #   bool: True, если сеть доступна, False - если недоступна.
-    #   str: Сообщение о статусе.
-    network_status_changed = pyqtSignal(bool, str)
+    # Сигнал для обновления GUI: True/False (доступен/нет), строка сообщения
+    network_status_gui = pyqtSignal(bool, str)
 
-    def __init__(self, target="8.8.8.8", parent=None):
+    def __init__(self, parent=None):
         """
         Инициализация NetworkChecker.
+        Настраивает светодиоды, PingServer и их взаимодействие.
         Args:
-            target (str): IP-адрес или доменное имя для PING-проверки (по умолчанию DNS Google).
             parent (QObject, optional): Родительский объект PyQt.
         """
         super().__init__(parent)
-        self.ping_target = target  # Хост для PING
-        self.ping_timeout = 1  # Таймаут для одной команды PING в секундах
-        self.max_failures = 3  # Количество последовательных неудачных PING, после которых сеть считается недоступной
-        self.current_failures = 0  # Текущее количество последовательных неудач PING
-        self.is_network_available = True  # Начальное предположение о доступности сети
-        self.running = False  # Флаг, управляющий циклом мониторинга
-        self.check_interval = 10  # Интервал между проверками PING в секундах
-        print(f"NetworkChecker инициализирован для цели: {self.ping_target}")
+        
+        # PIN-коды для светодиодов (BCM нумерация GPIO).
+        # Убедитесь, что эти пины не используются другими компонентами или службами ОС.
+        # Зеленый светодиод: GPIO 21 (сигнализирует доступность сети).
+        # Красный светодиод: GPIO 26 (сигнализирует отсутствие сети).
+        try:
+            self.green_led = LED(21)
+            self.red_led = LED(26)
+            
+            # PingServer для проверки доступности хоста (по умолчанию 8.8.8.8 - DNS Google).
+            self.ping_server = PingServer('8.8.8.8')
+
+            # Настройка автоматического управления светодиодами на основе состояния PingServer.
+            # source_delay: интервал (в секундах), с которым PingServer будет выполнять проверку PING.
+            self.ping_server.source_delay = 10 
+            # self.green_led.source: привязывает состояние светодиода к значению PingServer.
+            # Зеленый светодиод будет гореть, когда self.ping_server.value (результат пинга) True.
+            self.green_led.source = self.ping_server.values 
+            # Красный светодиод будет гореть, когда self.ping_server.value False.
+            # negated() инвертирует значение, так как красный LED должен гореть при отсутствии сети.
+            self.red_led.source = negated(self.ping_server.values)
+
+            # Начальное определение статуса сети на основе текущего значения PingServer.
+            self.is_network_available = self.ping_server.value 
+            self.running = False # Флаг для управления циклом _monitor_loop, который обновляет GUI.
+            # Интервал в секундах для _monitor_loop, как часто проверять self.ping_server.value для обновления GUI.
+            # Это может быть чаще, чем source_delay, чтобы GUI реагировал быстрее на уже определенное изменение.
+            self.gui_check_interval = 1 
+
+            print(f"NetworkChecker инициализирован. Зеленый LED: GPIO21, Красный LED: GPIO26. Начальный статус сети (gpiozero): {'Доступен' if self.is_network_available else 'Отсутствует'}")
+
+        except Exception as e:
+            # Обработка возможных исключений при инициализации gpiozero (например, если библиотека не установлена или запущено не на RPi)
+            print(f"Ошибка инициализации NetworkChecker (gpiozero): {e}")
+            self.camera_error.emit(f"Ошибка GPIO: {e}") # Используем существующий сигнал для уведомления об ошибке
+            # Устанавливаем заглушки, чтобы приложение не упало при вызове методов
+            self.green_led = None
+            self.red_led = None
+            self.ping_server = None
+            self.is_network_available = False # Предполагаем худший случай
+            self.running = False
+            # Можно было бы создать "пустые" объекты LED и PingServer, если бы gpiozero это поддерживала легко для заглушек.
+            # Вместо этого просто проверяем на None в других методах.
+
 
     def start_monitoring(self):
         """
-        Запускает асинхронный цикл мониторинга сети.
+        Запускает асинхронный цикл _monitor_loop для периодической проверки статуса PingServer
+        и отправки сигналов в GUI.
         """
-        print("Запуск мониторинга сети...")
-        self.running = True
-        asyncio.create_task(self._monitor_loop()) # Создание задачи asyncio для фонового выполнения
+        if not self.ping_server: # Если gpiozero не инициализировался
+            print("NetworkChecker: gpiozero компоненты не инициализированы. Мониторинг для GUI не запущен.")
+            return
+
+        if not self.running:
+            self.running = True
+            # Создание задачи asyncio для фонового выполнения _monitor_loop
+            asyncio.create_task(self._monitor_loop())
+            print("Мониторинг сети для GUI (на основе gpiozero.PingServer) запущен.")
 
     def stop_monitoring(self):
         """
-        Останавливает цикл мониторинга сети.
+        Останавливает цикл _monitor_loop и освобождает ресурсы gpiozero.
         """
-        print("Остановка мониторинга сети...")
-        self.running = False
+        self.running = False # Сигнал для остановки цикла _monitor_loop
+        
+        if not self.ping_server: # Если gpiozero не инициализировался
+            print("NetworkChecker: gpiozero компоненты не инициализированы. Остановка не требуется.")
+            return
 
-    async def _do_ping(self):
-        """
-        Асинхронно выполняет одну PING-проверку к self.ping_target.
-        Возвращает True, если PING успешен, иначе False.
-        """
-        system = platform.system().lower()  # Определение ОС для корректной команды PING
-        # Формирование команды PING в зависимости от ОС
-        if system == "windows":
-            # -n 1: отправить 1 запрос
-            # -w (timeout): таймаут в миллисекундах
-            cmd = f"ping -n 1 -w {self.ping_timeout * 1000} {self.ping_target}"
-        elif system == "linux" or system == "darwin":  # darwin для macOS
-            # -c 1: отправить 1 пакет
-            # -W (timeout): таймаут в секундах
-            cmd = f"ping -c 1 -W {self.ping_timeout} {self.ping_target}"
-        else:
-            print(f"Платформа {system} не поддерживается для PING.")
-            # Если платформа не поддерживается, считаем PING неудачным,
-            # чтобы избежать ошибок при попытке выполнить неизвестную команду.
-            return False
-
-        try:
-            # print(f"Выполнение PING: {cmd}")
-            # Асинхронный запуск PING как подпроцесса оболочки.
-            # stdout и stderr перенаправляются, чтобы избежать вывода в консоль основной программы.
-            process = await asyncio.create_subprocess_shell(
-                cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            # Ожидание завершения процесса PING
-            stdout, stderr = await process.communicate() 
+        # Отключаем source перед закрытием, чтобы остановить внутренние активности gpiozero,
+        # связанные с обновлением состояния светодиодов.
+        if self.green_led and hasattr(self.green_led, 'source'):
+             self.green_led.source = None
+        if self.red_led and hasattr(self.red_led, 'source'):
+             self.red_led.source = None
+        
+        # Закрываем GPIO устройства. Метод close() освобождает GPIO пины.
+        if self.green_led:
+            self.green_led.close()
+        if self.red_led:
+            self.red_led.close()
+        if self.ping_server:
+            self.ping_server.close()
             
-            # Отладочный вывод результатов PING (можно раскомментировать при необходимости)
-            # print(f"PING к {self.ping_target} код возврата: {process.returncode}")
-            # if stdout:
-            #     print(f"PING stdout: {stdout.decode(errors='ignore')}")
-            # if stderr:
-            #     print(f"PING stderr: {stderr.decode(errors='ignore')}")
-
-            # Код возврата 0 обычно означает успешный PING
-            return process.returncode == 0
-        except FileNotFoundError:
-            # Ошибка, если команда 'ping' не найдена в системе.
-            print(f"Ошибка: команда 'ping' не найдена. Убедитесь, что она установлена и доступна в PATH.")
-            return False
-        except Exception as e:
-            # Любые другие ошибки при выполнении PING.
-            print(f"Ошибка при выполнении PING: {e}")
-            return False
+        print("Мониторинг сети остановлен, ресурсы gpiozero освобождены.")
 
     async def _monitor_loop(self):
         """
-        Основной асинхронный цикл мониторинга сети.
-        Периодически выполняет PING и обновляет статус доступности сети.
+        Асинхронный цикл, который периодически проверяет значение self.ping_server.value
+        и, если оно изменилось, отправляет сигнал network_status_gui для обновления интерфейса.
         """
-        print("Цикл мониторинга сети запущен.")
-        # Первая проверка может быть выполнена сразу при запуске, если раскомментировать:
-        # if self.running:
-        #     await self._check_status() # (потребуется реализовать _check_status или встроить логику)
+        if not self.ping_server: # Дополнительная проверка
+            print("NetworkChecker: _monitor_loop не может быть запущен, PingServer не инициализирован.")
+            self.running = False
+            return
+            
+        print("Цикл мониторинга GUI для статуса сети (gpiozero) запущен...")
+        
+        # Отправляем начальный статус в GUI немедленно при запуске цикла
+        # Это гарантирует, что GUI получит статус, даже если он не изменится в будущем.
+        initial_message = "Интернет (gpiozero): доступен" if self.is_network_available else "Интернет (gpiozero): отсутствует"
+        self.network_status_gui.emit(self.is_network_available, initial_message)
 
         while self.running:
-            # Ожидание перед следующей проверкой.
-            await asyncio.sleep(self.check_interval) 
-            # Повторная проверка флага running, т.к. он мог измениться во время sleep.
-            if not self.running: 
-                break
+            # Ожидание указанного интервала перед следующей проверкой
+            await asyncio.sleep(self.gui_check_interval)
             
-            # print("Выполнение плановой проверки сети...")
-            success = await self._do_ping() # Выполнение PING
+            # Если за время ожидания флаг running был изменен на False (например, вызовом stop_monitoring),
+            # прерываем цикл.
+            if not self.running:
+                break
 
-            if success:
-                # PING успешен
-                # print(f"PING к {self.ping_target} успешен.")
-                self.current_failures = 0 # Сброс счетчика неудач
-                if not self.is_network_available:
-                    # Если сеть ранее была недоступна, меняем статус и отправляем сигнал
-                    self.is_network_available = True
-                    status_message = f"Сеть доступна (цель: {self.ping_target})"
-                    print(status_message)
-                    self.network_status_changed.emit(True, status_message)
-            else:
-                # PING неуспешен
-                # print(f"PING к {self.ping_target} не удался.")
-                self.current_failures += 1 # Увеличение счетчика неудач
-                if self.current_failures >= self.max_failures and self.is_network_available:
-                    # Если достигнуто максимальное количество неудач и сеть считалась доступной,
-                    # меняем статус на "недоступна" и отправляем сигнал.
-                    self.is_network_available = False
-                    status_message = f"Сеть недоступна: {self.current_failures} PING не прошли (цель: {self.ping_target})"
-                    print(status_message)
-                    self.network_status_changed.emit(False, status_message)
-                # Дополнительные условия (в текущей логике не должны активно срабатывать, но оставлены для полноты):
-                elif self.current_failures < self.max_failures and not self.is_network_available:
-                    # Это условие маловероятно, т.к. is_network_available сбрасывается только при max_failures.
-                    # Означало бы, что сеть была недоступна, но текущий PING прошел (уже обработано выше).
-                    pass 
-                elif self.current_failures >= self.max_failures and not self.is_network_available:
-                    # Сеть по-прежнему недоступна, сигнал уже был отправлен ранее.
-                    # Можно добавить логирование или периодическое напоминание, если необходимо.
-                    # print(f"Сеть все еще недоступна: {self.current_failures} неудач для {self.ping_target}")
-                    pass
+            # Получаем текущее значение от PingServer (True если пинг успешен, False если нет)
+            current_status = self.ping_server.value
+            
+            # Если текущий статус отличается от ранее сохраненного, значит, произошло изменение.
+            if current_status != self.is_network_available:
+                self.is_network_available = current_status # Обновляем сохраненный статус
+                message = "Интернет (gpiozero): доступен" if current_status else "Интернет (gpiozero): отсутствует"
+                print(f"Статус сети изменился (для GUI, gpiozero): {message}")
+                # Отправляем сигнал для обновления GUI
+                self.network_status_gui.emit(current_status, message)
+        
+        print("Цикл мониторинга GUI для статуса сети (gpiozero) остановлен.")
 
-        print("Цикл мониторинга сети остановлен.")
-
-    # Пример вспомогательного метода для немедленной проверки статуса (не используется в текущей логике _monitor_loop)
-    # async def _check_status(self):
-    #     """Немедленно проверяет статус сети и обновляет его, если необходимо."""
-    #     success = await self._do_ping()
-    #     if success:
-    #         self.current_failures = 0
-    #         if not self.is_network_available:
-    #             self.is_network_available = True
-    #             self.network_status_changed.emit(True, f"Сеть доступна ({self.ping_target})")
-    #     else:
-    #         self.current_failures += 1
-    #         if self.current_failures >= self.max_failures and self.is_network_available:
-    #             self.is_network_available = False
-    #             self.network_status_changed.emit(False, f"Сеть недоступна: {self.current_failures} PING не прошли ({self.ping_target})")
 ```
