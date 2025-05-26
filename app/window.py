@@ -2,10 +2,10 @@
 # Основной файл для главного окна приложения PyQt.
 # Отвечает за компоновку UI, инициализацию логических модулей и обработку событий.
 
-from PyQt6.QtWidgets import QMainWindow, QWidget, QGridLayout, QLabel, QPushButton, QVBoxLayout
-from PyQt6.QtCore import Qt, QUrl, QTimer, QPoint
-from PyQt6.QtGui import QPixmap # QPalette и QColor удалены, т.к. стилизация через styleSheet
-from PyQt6.QtWebEngineWidgets import QWebEngineView # Для отображения HTML контента (погода)
+from PySide6.QtWidgets import QMainWindow, QWidget, QGridLayout, QLabel, QPushButton, QVBoxLayout # PyQt6 -> PySide6
+from PySide6.QtCore import Qt, QUrl, QTimer, QPoint # PyQt6 -> PySide6
+from PySide6.QtGui import QPixmap # PyQt6 -> PySide6
+from PySide6.QtWebEngineWidgets import QWebEngineView # PyQt6 -> PySide6
 
 # Импорт логических модулей
 from app.logic.camera_handler import CameraHandler

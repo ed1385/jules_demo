@@ -1,8 +1,8 @@
 # main.py
 import sys
 import asyncio
-import traceback # <--- Добавлено
-from PyQt6.QtWidgets import QApplication, QMessageBox # <--- QMessageBox добавлен
+import traceback
+from PySide6.QtWidgets import QApplication, QMessageBox # PyQt6 -> PySide6
 from app.window import MainWindow 
 import quamash
 
