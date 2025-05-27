@@ -3,8 +3,8 @@
 import cv2  # Библиотека OpenCV для работы с компьютерным зрением
 import asyncio  # Для асинхронного выполнения операций
 import time # Для отслеживания времени кадра и FPS
-from PySide6.QtCore import QObject, Signal, QSize, Qt # PyQt6 -> PySide6, pyqtSignal -> Signal
-from PySide6.QtGui import QImage  # PyQt6 -> PySide6
+from PyQt5.QtCore import QObject, pyqtSignal, QSize, Qt # PySide6 -> PyQt5, Signal -> pyqtSignal
+from PyQt5.QtGui import QImage  # PySide6 -> PyQt5
 
 class CameraHandler(QObject):
     """
@@ -13,9 +13,9 @@ class CameraHandler(QObject):
     Работает в асинхронном режиме, чтобы не блокировать основной поток приложения.
     """
     # Сигнал, передающий новый обработанный кадр (в формате QImage)
-    new_frame = Signal(QImage) # pyqtSignal -> Signal
+    new_frame = pyqtSignal(QImage) # Signal -> pyqtSignal
     # Сигнал, сообщающий об ошибках, возникших при работе с камерой
-    camera_error = Signal(str) # pyqtSignal -> Signal
+    camera_error = pyqtSignal(str) # Signal -> pyqtSignal
 
     def __init__(self, camera_index=1, capture_width=544, capture_height=288, target_display_size=QSize(400, 300), parent=None):
         """
@@ -183,8 +183,8 @@ class CameraHandler(QObject):
                     rgb_image = cv2.cvtColor(rotated_frame, cv2.COLOR_BGR2RGB)
                     h, w, ch = rgb_image.shape
                     bytes_per_line = ch * w
-                    qt_image = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
-                    qt_image_scaled = qt_image.scaled(self.target_display_size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation) # Масштабирование для GUI
+                    qt_image = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format_RGB888)
+                    qt_image_scaled = qt_image.scaled(self.target_display_size, Qt.KeepAspectRatio, Qt.SmoothTransformation) # Qt.AspectRatioMode.* -> Qt.*, Qt.TransformationMode.* -> Qt.*
                     self.new_frame.emit(qt_image_scaled)
                 else:
                     # Кадр не получен
