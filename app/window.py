@@ -2,10 +2,10 @@
 # Основной файл для главного окна приложения PyQt.
 # Отвечает за компоновку UI, инициализацию логических модулей и обработку событий.
 
-from PySide6.QtWidgets import QMainWindow, QWidget, QGridLayout, QLabel, QPushButton, QVBoxLayout # PyQt6 -> PySide6
-from PySide6.QtCore import Qt, QUrl, QTimer, QPoint # PyQt6 -> PySide6
-from PySide6.QtGui import QPixmap # PyQt6 -> PySide6
-from PySide6.QtWebEngineWidgets import QWebEngineView # PyQt6 -> PySide6
+from PyQt5.QtWidgets import QMainWindow, QWidget, QGridLayout, QLabel, QPushButton, QVBoxLayout # PySide6 -> PyQt5
+from PyQt5.QtCore import Qt, QUrl, QTimer, QPoint # PySide6 -> PyQt5
+from PyQt5.QtGui import QPixmap # PySide6 -> PyQt5
+from PyQt5.QtWebEngineWidgets import QWebEngineView # PySide6 -> PyQt5
 
 # Импорт логических модулей
 from app.logic.camera_handler import CameraHandler
@@ -26,7 +26,7 @@ class MainWindow(QMainWindow):
         # Установка флагов для режима киоска:
         # - FramelessWindowHint: убирает рамку окна и заголовок.
         # - WindowStaysOnTopHint: старается держать окно поверх других (полезно для киосков).
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint) # Qt.WindowType.Flag -> Qt.Flag
         
         # 1. Общий фон окна и базовые стили
         self.setObjectName("mainWindow") # Имя объекта для применения стилей
@@ -52,7 +52,7 @@ class MainWindow(QMainWindow):
 
         # --- Вторая часть экрана (0,1): Вид с камеры ---
         self.camera_view_label = QLabel("Ожидание видео...") # Метка для отображения кадров с камеры
-        self.camera_view_label.setAlignment(Qt.AlignmentFlag.AlignCenter) # Текст по центру
+        self.camera_view_label.setAlignment(Qt.AlignCenter) # Qt.AlignmentFlag.AlignCenter -> Qt.AlignCenter
         self.camera_view_label.setAutoFillBackground(False) # Отключаем автозаливку, т.к. используем стили
         self.camera_view_label.setObjectName("cameraView")
         # Стиль для области отображения камеры: черный фон, скругленные углы, белый текст
@@ -175,11 +175,11 @@ class MainWindow(QMainWindow):
             part3_layout = self.part3_placeholder.layout()
         
         part3_layout.setContentsMargins(15, 15, 15, 15) 
-        part3_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        part3_layout.setAlignment(Qt.AlignCenter) # Qt.AlignmentFlag.AlignCenter -> Qt.AlignCenter
 
         self.network_status_label = QLabel("Статус сети: ожидание...")
         self.network_status_label.setObjectName("networkStatusLabel")
-        self.network_status_label.setAlignment(Qt.AlignmentFlag.AlignCenter) 
+        self.network_status_label.setAlignment(Qt.AlignCenter) # Qt.AlignmentFlag.AlignCenter -> Qt.AlignCenter
         self.network_status_label.setStyleSheet(
             "#networkStatusLabel { color: #424242; font-size: 15px; font-family: 'DejaVu Sans', Arial, sans-serif; }"
         ) 

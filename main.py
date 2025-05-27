@@ -2,7 +2,7 @@
 import sys
 import asyncio
 import traceback
-from PySide6.QtWidgets import QApplication, QMessageBox # PyQt6 -> PySide6
+from PyQt5.QtWidgets import QApplication, QMessageBox # PySide6 -> PyQt5
 from app.window import MainWindow 
 import quamash
 
@@ -69,10 +69,10 @@ if __name__ == '__main__':
         # Запуск основного цикла событий приложения.
         # `loop` (Quamash QEventLoop) здесь используется как контекстный менеджер,
         # чтобы обеспечить корректное управление его жизненным циклом.
-        # `app.exec()` запускает цикл событий PyQt, который теперь интегрирован с asyncio.
+        # `app.exec_()` запускает цикл событий PyQt, который теперь интегрирован с asyncio.
         # `sys.exit()` обеспечивает корректное завершение приложения с кодом возврата.
         with loop:
-            sys.exit(app.exec())
+            sys.exit(app.exec_()) # exec() -> exec_()
             
     except Exception as e:
         # Этот блок try...except предназначен для перехвата исключений,

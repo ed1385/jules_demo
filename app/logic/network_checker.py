@@ -4,7 +4,7 @@
 # отправляет сигналы для обновления GUI.
 
 import asyncio
-from PySide6.QtCore import QObject, Signal # PyQt6 -> PySide6, pyqtSignal -> Signal
+from PyQt5.QtCore import QObject, pyqtSignal # PySide6 -> PyQt5, Signal -> pyqtSignal
 from gpiozero import LED, PingServer
 from gpiozero.tools import negated # Утилита для инвертирования значения источника gpiozero
 
@@ -15,7 +15,7 @@ class NetworkChecker(QObject):
     Периодически проверяет статус и отправляет сигнал network_status_gui для обновления UI.
     """
     # Сигнал для обновления GUI: True/False (доступен/нет), строка сообщения
-    network_status_gui = Signal(bool, str) # pyqtSignal -> Signal
+    network_status_gui = pyqtSignal(bool, str) # Signal -> pyqtSignal
 
     def __init__(self, parent=None):
         """

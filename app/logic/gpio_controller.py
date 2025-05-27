@@ -15,7 +15,7 @@
 
 import asyncio
 # import os # Закомментировано/удалено, т.к. os.system был заменен на asyncio.create_subprocess_shell
-from PySide6.QtCore import QObject, Signal # PyQt6 -> PySide6, pyqtSignal -> Signal
+from PyQt5.QtCore import QObject, pyqtSignal # PySide6 -> PyQt5, Signal -> pyqtSignal
 from gpiozero import Button # Класс для работы с физическими кнопками
 
 class GPIOController(QObject):
@@ -26,7 +26,7 @@ class GPIOController(QObject):
     """
     # Сигнал, эмитируемый после завершения (успешного или неуспешного) действия закрытия браузера.
     # Передает строку с сообщением о результате.
-    shutdown_action_finished = Signal(str) # pyqtSignal -> Signal
+    shutdown_action_finished = pyqtSignal(str) # Signal -> pyqtSignal
 
     def __init__(self, parent=None):
         """

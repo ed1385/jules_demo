@@ -1,4 +1,5 @@
-PySide6
+PyQt5
+PyQtWebEngine
 opencv-python==4.8.0.74
 gpiozero==1.6.2
 quamash
